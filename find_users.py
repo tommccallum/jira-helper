@@ -17,13 +17,18 @@ headers = {
     "Accept": "application/json"
 }
 
+row = 0
 users = []
-with open("jira_users.txt") as users_csv:
+with open("jira_users.csv") as users_csv:
     for u in users_csv:
-        u = u.strip()
-        x = list(csv.reader([u], delimiter=',', quotechar='"'))[0]
-        o = {"name": x[0], "type": x[1]}
-        users.append(o)
+        if row > 0:
+            u = u.strip()
+            x = list(csv.reader([u], delimiter=',', quotechar='"'))[0]
+            o = {"name": x[0], "type": x[1]}
+            users.append(o)
+        row += 1
+
+print(users)
 
 for index, user in enumerate(users):
     query = {

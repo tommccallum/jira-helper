@@ -120,24 +120,31 @@ class Project:
                 self.taskIssueType = issueType
 
         self.issues = self.getAllIssues()
-
-        # try to match the epics
         self.specification.epicsCollection.match(self.issues)
-        epicsHaveBeenAddedToBacklog = False
-        for k in self.specification.epicsCollection.epics.keys():
-            epic = self.specification.epicsCollection.epics[k]
-            isChanged = self.createEpic(epic)
-            if isChanged:
-                epicsHaveBeenAddedToBacklog = True
-
-        # retrieve all issues again so we get all the new epics if any
-        if epicsHaveBeenAddedToBacklog:
-            self.issues = self.getAllIssues()
+            
+        if len(self.specification.usersToGenerateTasksFor) > 0:
+            # only create tasks for an individual
+            self.specification.issuesCollection.match(self.issues)
+            for issue in self.specification.issuesCollection.issues:
+                self.createIssue(issue, team)
+        else:
+            # try to match the epics
             self.specification.epicsCollection.match(self.issues)
+            epicsHaveBeenAddedToBacklog = False
+            for k in self.specification.epicsCollection.epics.keys():
+                epic = self.specification.epicsCollection.epics[k]
+                isChanged = self.createEpic(epic)
+                if isChanged:
+                    epicsHaveBeenAddedToBacklog = True
 
-        self.specification.issuesCollection.match(self.issues)
-        for issue in self.specification.issuesCollection.issues:
-            self.createIssue(issue, team)
+            # retrieve all issues again so we get all the new epics if any
+            if epicsHaveBeenAddedToBacklog:
+                self.issues = self.getAllIssues()
+                self.specification.epicsCollection.match(self.issues)
+
+            self.specification.issuesCollection.match(self.issues)
+            for issue in self.specification.issuesCollection.issues:
+                self.createIssue(issue, team)
 
     def createIssue(self, issue, team):
         """
@@ -145,6 +152,11 @@ class Project:
         or to be decided by the team
         """
         if issue["assignment_type"].upper() == "TEAM":
+
+            if len(self.specification.usersToGenerateTasksFor) > 0:
+                # Do not add team issues if we are assigning only individuals
+                return True
+
             if "issues" not in issue or len(issue["issues"]) == 0:
                 self.addIssue(issue)
                 return True
@@ -155,20 +167,37 @@ class Project:
             # add a new issue per team member
             isChanged = False
             for member in team:
-                if "issues" in issue and len(issue["issues"]) > 0:
-                    found = False
-                    for existingIssue in issue["issues"]:
-                        if len(existingIssue["fields"]["assignee"]) > 0:
-                            if existingIssue["fields"]["assignee"]["accountId"] == member.accountId:
-                                found = True
-                    if not found:
+                if len(self.specification.usersToGenerateTasksFor) > 0:
+                    if member.name in self.specification.usersToGenerateTasksFor:
+                        if "issues" in issue and len(issue["issues"]) > 0:
+                            found = False
+                            for existingIssue in issue["issues"]:
+                                if len(existingIssue["fields"]["assignee"]) > 0:
+                                    if existingIssue["fields"]["assignee"]["accountId"] == member.accountId:
+                                        found = True
+                            if not found:
+                                self.addIssue(issue, member)
+                                isChanged=True
+                            else:
+                                print("Individual issue {} already exists as {}".format(issue["summary"], existingIssue["id"]))
+                        else:
+                            self.addIssue(issue, member)
+                            isChanged=True
+                else:
+                    if "issues" in issue and len(issue["issues"]) > 0:
+                        found = False
+                        for existingIssue in issue["issues"]:
+                            if len(existingIssue["fields"]["assignee"]) > 0:
+                                if existingIssue["fields"]["assignee"]["accountId"] == member.accountId:
+                                    found = True
+                        if not found:
+                            self.addIssue(issue, member)
+                            isChanged=True
+                        else:
+                            print("Individual issue {} already exists as {}".format(issue["summary"], existingIssue["id"]))
+                    else:
                         self.addIssue(issue, member)
                         isChanged=True
-                    else:
-                        print("Individual issue {} already exists as {}".format(issue["summary"], existingIssue["id"]))
-                else:
-                    self.addIssue(issue, member)
-                    isChanged=True
             return isChanged
         else:
             raise Exception("unexpected assignment_type for issue {}".format(issue["summary"]))
@@ -239,6 +268,7 @@ class Project:
         Must be called after getAllIssues
         """
         if "issue" not in epic:
+            print("Epic issue not found")
             self.addEpic(epic)
             return True
         else:
@@ -365,15 +395,17 @@ class Project:
                 "REST API call incurred errors: {}".format(response.text))
         return result
 
-    def getAllIssues(self):
-        print("[API] Get all issues {}".format(self.key))
+
+    def getAllIssues_helper(self, start=0):
+        print("[API] Get all issues {} from {}".format(self.key, start))
         auth = HTTPBasicAuth(os.getenv('USEREMAIL'), os.getenv('JIRA_API_KEY'))
         url = os.getenv("JIRA_URL")+"/3/search"
         # can get at most 1000 at once
         # TODO get multiple pages if more than 100
         params = {
             "jql": "project="+self.key,
-            "maxResults": -1
+            "startAt": start,
+            "maxResults": -1 
         }
         response = requests.request(
             "GET",
@@ -381,7 +413,11 @@ class Project:
             auth=auth,
             params=params
         )
-        print("RESPONSE {}: {}".format(response.status_code, response.text))
+
+        # print("RESPONSE {}: {}".format(response.status_code, response.text))
+        with open("tmp_issues.json","w") as outFile:
+            json.dump(response.text, outFile, indent=2, sort_keys=True)
+
         if response.status_code != 200:
             raise Exception("Received {} from {}".format(
                 response.status_code, url))
@@ -389,7 +425,28 @@ class Project:
         if "errorMessages" in issues:
             raise Exception(
                 "REST API call incurred errors: {}".format(response.text))
-        return issues["issues"]
+        return issues
+
+    def getAllIssues(self):
+        """
+        Iterate over multiple pages of issues
+        """
+        response = self.getAllIssues_helper(0)
+        total = response["total"]
+        maxResults = response["maxResults"]
+        issues = response["issues"]
+        resultsCount = len(issues)
+        all_issues = issues
+        while resultsCount < total:
+            startAt = resultsCount
+            response = self.getAllIssues_helper(startAt)
+            total = response["total"]
+            maxResults = response["maxResults"]
+            issues = response["issues"]
+            resultsCount += len(issues)
+            all_issues = all_issues + issues
+        return all_issues
+
 
     def getProjectRoles(self):
         print("[API] Get project roles {}".format(self.key))
@@ -751,6 +808,7 @@ class Specification:
         self.usersFilePath = usersFilePath
         self.epicsFilePath = None
         self.issuesFilePath = None
+        self.usersToGenerateTasksFor = []
 
     def loadIssues(self):
         if self.issuesFilePath:
@@ -792,6 +850,7 @@ if __name__ == "__main__":
     epicsFilePath = None
     teamsFilePath = None
     usersFilePath = None
+    usersToGenerateTasksFor = []
 
     # parse all our arguments from command line
     argCount = len(sys.argv)
@@ -817,6 +876,10 @@ if __name__ == "__main__":
             issuesFilePath = sys.argv[argIndex + 1]
             argIndex += 2
             continue
+        if sys.argv[argIndex] == "--users" or sys.argv[argIndex] == "--user":
+            usersToGenerateTasksFor.append(sys.argv[argIndex+1])
+            argIndex += 2
+            continue
         argIndex += 1
 
     if not projectsFilePath:
@@ -832,6 +895,7 @@ if __name__ == "__main__":
         projectsFilePath, teamsFilePath, usersFilePath)
     specification.epicsFilePath = epicsFilePath
     specification.issuesFilePath = issuesFilePath
+    specification.usersToGenerateTasksFor = usersToGenerateTasksFor
 
     # build project
     specification.loadUsers()
