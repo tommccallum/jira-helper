@@ -14,6 +14,8 @@ pip install python-dotenv
 
 ```
 cp .env.template .env
+source venv/bin/activate
+export PYTHONPATH="${PYTHONPATH}:$(pwd):$(pwd)/src"
 ```
 
 Then modify the file by adding the Jira API key and the email address of the user who is using the API.
@@ -28,7 +30,15 @@ A comma separated value (csv) file with:
 Run the following to generate the users_db.json file.
 
 ```
-python find_users.py
+python build_project.py --update-users-list
+```
+
+### Creating individual boards
+
+For example creating onboarding kanban boards.
+
+```
+python build_project.py --individual-boards --users "FRED THOMPSON" --users "ANNA GRAHAM"
 ```
 
 ### Create teams csv
@@ -92,6 +102,12 @@ Create a csv with our issues.
 ### Build the projects
 
 The build.sh script wraps the command to create the projects.  You will need to download the users list first so that we can get the user ids.
+
+```
+python build_project.py --create-team-boards -p project.csv -u user_db.json --epics epics.csv --issues issues.csv -t teams.csv
+```
+
+or 
 
 ```
 ./build.sh
