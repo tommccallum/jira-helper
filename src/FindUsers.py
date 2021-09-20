@@ -19,7 +19,7 @@ def getListOfJiraUsersFromCsv(jiraUsersToSearchFor="jira_users.csv"):
         for u in users_csv:
             if row > 0:
                 u = u.strip()
-                if len(u) > 0 or u[0] != '#':
+                if len(u) > 0 and u[0] != '#':
                     x = list(csv.reader([u], delimiter=',', quotechar='"'))[0]
                     o = {"name": x[1], "type": x[2], "year": x[0]}
                     users.append(o)
@@ -52,8 +52,6 @@ def getAccountIdForUsersList(jiraUsersToSearchFor):
         )
 
         resp = json.loads(response.text)
-        # print(json.dumps(json.loads(response.text),
-        #                 sort_keys=True, indent=4, separators=(",", ": ")))
         matching_users_count = resp["users"]["total"]
         validUser = None
         if matching_users_count > 1:
