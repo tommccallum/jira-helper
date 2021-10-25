@@ -9,9 +9,11 @@ def createTeamCollectionFromFile(teamsFilePath, users):
         row = 1
         for userToTeamMapping in inFile:
             userToTeamMapping = userToTeamMapping.strip()
+            if len(userToTeamMapping) == 0 or userToTeamMapping[0] == '#':
+                    continue
             x = list(csv.reader([userToTeamMapping],
                                 delimiter=',', quotechar='"'))[0]
-            if row == 1:
+            if len(x) > 0 and row == 1:
                 headers = x
                 row += 1
                 continue

@@ -52,6 +52,7 @@ def getAccountIdForUsersList(jiraUsersToSearchFor):
         )
 
         resp = json.loads(response.text)
+        print(resp)
         matching_users_count = resp["users"]["total"]
         validUser = None
         if matching_users_count > 1:

@@ -13,6 +13,8 @@ class ProjectCollection:
             row = 1
             for projectDef in inFile:
                 projectDef = projectDef.strip()
+                if len(projectDef) == 0 or projectDef[0] == '#':
+                    continue
                 x = list(csv.reader([projectDef],
                                     delimiter=',', quotechar='"'))[0]
                 if row == 1:
